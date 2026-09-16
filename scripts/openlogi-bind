@@ -82,9 +82,11 @@ def main() -> None:
     # Strip every previous form of this button's binding: standalone section
     # tables (with any trailing whitespace the GUI leaves in the header) and
     # inline `Button = ...` entries inside the plain bindings table.
+    # The body match is GREEDY — a lazy quantifier here would eat the header
+    # and leave the section body orphaned inside whatever table follows.
     section_header = re.compile(
         rf'^\[devices\."{re.escape(serial)}"\.bindings\.{button}\s*\]\s*\n'
-        rf"(?:^[^\[]*?\n)*?",
+        rf"(?:^[^\[]*?\n)*",
         re.MULTILINE,
     )
     text = section_header.sub("", text)
