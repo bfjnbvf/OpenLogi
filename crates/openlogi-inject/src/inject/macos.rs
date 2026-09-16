@@ -286,12 +286,27 @@ fn post_unicode(text: &str) {
 
 /// Press a key chord described by a `KeyCombo` modifier bitmask + virtual
 /// keycode. Used by the workflow sequencer's `PressKey` step.
+///
+/// A modifier-only chord (no ordinary key) taps each modifier key with no
+/// base key — e.g. `Option` presses and releases Alt.
 fn post_keycombo(combo: &KeyCombo) {
-    if let Some(vk) = hid_usage_to_macos(combo.key().code()) {
+    let Some(usage) = combo.key() else {
+        let mut held = HeldModifiers::default();
+        for key in super::held_keys(combo) {
+            if let Some((vk, flags)) = held_key_event(key, KeyPhase::Down, &mut held) {
+                post_key_phase(vk, flags, KeyPhase::Down);
+            }
+            if let Some((vk, flags)) = held_key_event(key, KeyPhase::Up, &mut held) {
+                post_key_phase(vk, flags, KeyPhase::Up);
+            }
+        }
+        return;
+    };
+    if let Some(vk) = hid_usage_to_macos(usage.code()) {
         post_key(vk, combo_flags(combo));
     } else {
         tracing::warn!(
-            usage = combo.key().code(),
+            usage = usage.code(),
             "shortcut usage has no macOS mapping"
         );
     }
@@ -463,9 +478,9 @@ mod tests {
         // variant is checked here automatically instead of depending on
         // someone remembering to extend a second, independent list.
         for &shortcut in Shortcut::ALL {
-            let key = combo(shortcut).key().code();
+            let key = combo(shortcut).key().expect("table shortcut has a key");
             assert!(
-                hid_usage_to_macos(key).is_some(),
+                hid_usage_to_macos(key.code()).is_some(),
                 "{shortcut:?} table entry has no macOS virtual-key mapping"
             );
         }
@@ -483,7 +498,7 @@ mod tests {
         assert!(flags.contains(CGEventFlags::CGEventFlagCommand));
         assert!(flags.contains(CGEventFlags::CGEventFlagControl));
 
-        let key = combo(Shortcut::Copy).key();
+        let key = combo(Shortcut::Copy).key().expect("Copy has a key");
         let (_, flags) = held_key_event(HeldKey::Key(key), KeyPhase::Up, &mut modifiers)
             .expect("Copy's key has a macOS virtual-key mapping");
         assert!(flags.contains(CGEventFlags::CGEventFlagCommand));

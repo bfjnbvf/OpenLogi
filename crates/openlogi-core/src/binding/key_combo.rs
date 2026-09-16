@@ -92,17 +92,19 @@ const fn validate_keyboard_usage(value: &u8) -> Result<(), KeyboardUsageError> {
 /// A platform-neutral keyboard chord.
 ///
 /// Human-readable formats store the canonical text chord; binary IPC stores
-/// validated modifier bits and a USB HID usage.
+/// validated modifier bits and an optional USB HID usage. A chord with no
+/// ordinary key but at least one modifier is a *modifier-only chord* — it
+/// represents holding (or tapping) a modifier key on its own.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct KeyCombo {
     modifiers: u8,
-    key: KeyboardUsage,
+    key: Option<KeyboardUsage>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct KeyComboWire {
     modifiers: u8,
-    key: KeyboardUsage,
+    key: Option<KeyboardUsage>,
 }
 
 impl TryFrom<KeyComboWire> for KeyCombo {
@@ -111,6 +113,9 @@ impl TryFrom<KeyComboWire> for KeyCombo {
     fn try_from(value: KeyComboWire) -> Result<Self, Self::Error> {
         if value.modifiers & !ALL_MODIFIERS != 0 {
             return Err(KeyComboParseError::InvalidModifiers(value.modifiers));
+        }
+        if value.key.is_none() && value.modifiers == 0 {
+            return Err(KeyComboParseError::MissingKey);
         }
         Ok(Self {
             modifiers: value.modifiers,
@@ -161,9 +166,11 @@ impl<'de> Deserialize<'de> for KeyCombo {
 }
 
 impl KeyCombo {
-    /// USB HID keyboard usage for the ordinary key.
+    /// USB HID keyboard usage for the ordinary key, if the chord has one.
+    ///
+    /// Modifier-only chords (e.g. a bare `Option`) return `None`.
     #[must_use]
-    pub const fn key(&self) -> KeyboardUsage {
+    pub const fn key(&self) -> Option<KeyboardUsage> {
         self.key
     }
 
@@ -207,7 +214,9 @@ impl KeyCombo {
         if self.has_shift() {
             parts.push("Shift".to_string());
         }
-        parts.push(self.key.label());
+        if let Some(key) = self.key {
+            parts.push(key.label());
+        }
         parts.join("+")
     }
 }
@@ -257,9 +266,11 @@ impl FromStr for KeyCombo {
             }
             key = Some(parse_key(token)?);
         }
-        let Some(key) = key else {
+        // A chord with no ordinary key is valid when at least one modifier
+        // names it — that is a modifier-only chord ("Option" = hold Alt).
+        if key.is_none() && modifiers == 0 {
             return Err(KeyComboParseError::MissingKey);
-        };
+        }
         Ok(Self { modifiers, key })
     }
 }
@@ -337,7 +348,7 @@ mod tests {
             .expect("valid shortcut failed");
         assert!(combo.has_command());
         assert!(combo.has_shift());
-        assert_eq!(combo.key().code(), 0x13);
+        assert_eq!(combo.key().unwrap().code(), 0x13);
         assert_eq!(combo.rendered_label(), "Cmd+Shift+P");
 
         let combo = "Ctrl+Alt+Left"
@@ -345,21 +356,38 @@ mod tests {
             .expect("valid shortcut failed");
         assert!(combo.has_control());
         assert!(combo.has_option());
-        assert_eq!(combo.key().code(), 0x50);
+        assert_eq!(combo.key().unwrap().code(), 0x50);
         assert_eq!(combo.rendered_label(), "Ctrl+Alt+Left");
+    }
+
+    #[test]
+    fn parses_modifier_only_chords() {
+        let combo = "Option"
+            .parse::<KeyCombo>()
+            .expect("modifier-only shortcut failed");
+        assert!(combo.has_option());
+        assert_eq!(combo.key(), None);
+        assert_eq!(combo.rendered_label(), "Alt");
+        assert_eq!("Alt".parse::<KeyCombo>(), Ok(combo));
     }
 
     #[test]
     fn a_uses_its_platform_neutral_hid_usage() {
         let combo = "Cmd+A".parse::<KeyCombo>().expect("valid shortcut failed");
-        assert_eq!(combo.key().code(), 0x04);
+        assert_eq!(combo.key().unwrap().code(), 0x04);
         assert_eq!(combo.rendered_label(), "Cmd+A");
     }
 
     #[test]
-    fn rejects_missing_multiple_and_unknown_keys() {
+    fn rejects_multiple_and_unknown_keys() {
+        // Modifier-only chords are valid now, but a chord with neither a
+        // modifier nor a key still cannot exist (empty input is caught as
+        // `Empty`; this is the binary-wire guard for `modifiers == 0`).
         assert_eq!(
-            "Cmd+Shift".parse::<KeyCombo>(),
+            KeyCombo::try_from(KeyComboWire {
+                modifiers: 0,
+                key: None
+            }),
             Err(KeyComboParseError::MissingKey)
         );
         assert_eq!(
@@ -389,7 +417,7 @@ mod tests {
         assert_eq!(
             KeyCombo::try_from(KeyComboWire {
                 modifiers: 128,
-                key: KeyboardUsage::try_from(0x04).expect("0x04 is a valid keyboard usage"),
+                key: Some(KeyboardUsage::try_from(0x04).expect("0x04 is a valid keyboard usage")),
             }),
             Err(KeyComboParseError::InvalidModifiers(128))
         );

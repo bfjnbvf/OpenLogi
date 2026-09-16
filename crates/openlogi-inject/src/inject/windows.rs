@@ -269,9 +269,16 @@ pub(super) fn post_scroll(delta: ScrollDelta) {
 }
 
 fn post_custom_shortcut(combo: &KeyCombo) {
-    let Some(vk) = super::hid_usage_to_windows(combo.key().code()) else {
+    let Some(usage) = combo.key() else {
         tracing::warn!(
-            usage = combo.key().code(),
+            chord = %combo.rendered_label(),
+            "modifier-only shortcut has no Windows mapping yet; press ignored"
+        );
+        return;
+    };
+    let Some(vk) = super::hid_usage_to_windows(usage.code()) else {
+        tracing::warn!(
+            usage = usage.code(),
             chord = %combo.rendered_label(),
             "CustomShortcut key has no Windows mapping yet; press ignored"
         );
@@ -435,9 +442,9 @@ mod tests {
             let Ok(chord) = combo(shortcut) else {
                 continue;
             };
-            let key = chord.key().code();
+            let key = chord.key().expect("table shortcut has a key");
             assert!(
-                super::super::hid_usage_to_windows(key).is_some(),
+                super::super::hid_usage_to_windows(key.code()).is_some(),
                 "{shortcut:?} table entry has no Windows virtual-key mapping"
             );
         }

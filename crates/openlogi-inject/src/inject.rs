@@ -169,7 +169,11 @@ fn held_keys(combo: &KeyCombo) -> Vec<HeldKey> {
     if combo.has_option() {
         keys.push(HeldKey::Alt);
     }
-    keys.push(HeldKey::Key(combo.key()));
+    // A modifier-only chord holds just its modifier keys; there is no base
+    // key to press.
+    if let Some(usage) = combo.key() {
+        keys.push(HeldKey::Key(usage));
+    }
     keys
 }
 
@@ -549,27 +553,27 @@ mod tests {
             output.transition(None, Some(&control_a)),
             HoldTransition {
                 up: vec![],
-                down: vec![HeldKey::Control, HeldKey::Key(control_a.key())],
+                down: vec![HeldKey::Control, HeldKey::Key(control_a.key().unwrap())],
             }
         );
         assert_eq!(
             output.transition(None, Some(&control_b)),
             HoldTransition {
                 up: vec![],
-                down: vec![HeldKey::Key(control_b.key())],
+                down: vec![HeldKey::Key(control_b.key().unwrap())],
             }
         );
         assert_eq!(
             output.transition(Some(&control_a), None),
             HoldTransition {
-                up: vec![HeldKey::Key(control_a.key())],
+                up: vec![HeldKey::Key(control_a.key().unwrap())],
                 down: vec![],
             }
         );
         assert_eq!(
             output.transition(Some(&control_b), None),
             HoldTransition {
-                up: vec![HeldKey::Control, HeldKey::Key(control_b.key())],
+                up: vec![HeldKey::Control, HeldKey::Key(control_b.key().unwrap())],
                 down: vec![],
             }
         );
@@ -587,13 +591,13 @@ mod tests {
             output.transition(None, Some(&control_b)),
             HoldTransition {
                 up: vec![],
-                down: vec![HeldKey::Key(control_b.key())],
+                down: vec![HeldKey::Key(control_b.key().unwrap())],
             }
         );
         assert_eq!(
             output.transition(Some(&command_a), None),
             HoldTransition {
-                up: vec![HeldKey::Key(command_a.key())],
+                up: vec![HeldKey::Key(command_a.key().unwrap())],
                 down: vec![],
             }
         );
@@ -611,13 +615,13 @@ mod tests {
             output.transition(None, Some(&control_b)),
             HoldTransition {
                 up: vec![],
-                down: vec![HeldKey::Control, HeldKey::Key(control_b.key())],
+                down: vec![HeldKey::Control, HeldKey::Key(control_b.key().unwrap())],
             }
         );
         assert_eq!(
             output.transition(Some(&command_a), None),
             HoldTransition {
-                up: vec![HeldKey::Command, HeldKey::Key(command_a.key())],
+                up: vec![HeldKey::Command, HeldKey::Key(command_a.key().unwrap())],
                 down: vec![],
             }
         );
@@ -635,20 +639,20 @@ mod tests {
             output.transition(None, Some(&command_b)),
             HoldTransition {
                 up: vec![],
-                down: vec![HeldKey::Key(command_b.key())],
+                down: vec![HeldKey::Key(command_b.key().unwrap())],
             }
         );
         assert_eq!(
             output.transition(Some(&command_a), None),
             HoldTransition {
-                up: vec![HeldKey::Key(command_a.key())],
+                up: vec![HeldKey::Key(command_a.key().unwrap())],
                 down: vec![],
             }
         );
         assert_eq!(
             output.transition(Some(&command_b), None),
             HoldTransition {
-                up: vec![HeldKey::Command, HeldKey::Key(command_b.key())],
+                up: vec![HeldKey::Command, HeldKey::Key(command_b.key().unwrap())],
                 down: vec![],
             }
         );
@@ -665,8 +669,8 @@ mod tests {
         assert_eq!(
             output.transition(Some(&old), Some(&new)),
             HoldTransition {
-                up: vec![HeldKey::Key(old.key())],
-                down: vec![HeldKey::Key(new.key())],
+                up: vec![HeldKey::Key(old.key().unwrap())],
+                down: vec![HeldKey::Key(new.key().unwrap())],
             }
         );
     }

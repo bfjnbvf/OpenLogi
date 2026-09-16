@@ -107,9 +107,16 @@ fn parse_shortcut(text: &str) -> KeyCombo {
 /// Press an already-resolved chord: a table lookup from [`combo`] or a
 /// user-recorded [`Action::CustomShortcut`]/`WorkflowStep::PressKey`.
 fn press_combo(combo: &KeyCombo) {
-    let Some(key) = hid_usage_to_linux(combo.key().code()) else {
+    let Some(usage) = combo.key() else {
         tracing::warn!(
-            usage = combo.key().code(),
+            chord = %combo.rendered_label(),
+            "modifier-only shortcut has no Linux mapping — press ignored"
+        );
+        return;
+    };
+    let Some(key) = hid_usage_to_linux(usage.code()) else {
+        tracing::warn!(
+            usage = usage.code(),
             "shortcut usage has no Linux mapping — press ignored"
         );
         return;
@@ -209,9 +216,16 @@ fn run_workflow(steps: &[WorkflowStep]) {
                 );
             }
             WorkflowStep::PressKey(combo) => {
-                let Some(key) = hid_usage_to_linux(combo.key().code()) else {
+                let Some(usage) = combo.key() else {
                     tracing::warn!(
-                        usage = combo.key().code(),
+                        chord = %combo.rendered_label(),
+                        "modifier-only workflow PressKey ignored on Linux"
+                    );
+                    continue;
+                };
+                let Some(key) = hid_usage_to_linux(usage.code()) else {
+                    tracing::warn!(
+                        usage = usage.code(),
                         "workflow PressKey usage has no Linux mapping; step ignored"
                     );
                     continue;
@@ -782,9 +796,9 @@ mod tests {
         // variant is checked here automatically instead of depending on
         // someone remembering to extend a second, independent list.
         for &shortcut in Shortcut::ALL {
-            let key = combo(shortcut).key().code();
+            let key = combo(shortcut).key().expect("table shortcut has a key");
             assert!(
-                hid_usage_to_linux(key).is_some(),
+                hid_usage_to_linux(key.code()).is_some(),
                 "{shortcut:?} table entry has no Linux keycode mapping"
             );
         }
