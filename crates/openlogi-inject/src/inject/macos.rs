@@ -243,6 +243,14 @@ fn tag_synthetic(ev: &CGEvent) {
     );
 }
 
+/// Virtual keycodes of modifier keys. macOS expects modifier edges to arrive
+/// as `kCGEventFlagsChanged`; posting them as plain key-down/key-up pairs is
+/// ignored by the system's aggregated modifier state, so apps (the Dock,
+/// hotkey listeners, …) never see the modifier as held.
+fn is_modifier_vk(vk: u16) -> bool {
+    matches!(vk, 0x36..=0x3E) // Left/Right Command, Shift, Option, Control
+}
+
 /// Post one keyboard edge for `vk` with `flags` set.
 fn post_key_phase(vk: u16, flags: CGEventFlags, phase: KeyPhase) {
     let Ok(src) = CGEventSource::new(CGEventSourceStateID::HIDSystemState) else {
@@ -255,6 +263,9 @@ fn post_key_phase(vk: u16, flags: CGEventFlags, phase: KeyPhase) {
         return;
     };
     event.set_flags(flags);
+    if is_modifier_vk(vk) {
+        event.set_type(CGEventType::FlagsChanged);
+    }
     event.post(CGEventTapLocation::HID);
 }
 
@@ -358,6 +369,9 @@ fn held_key_event(
         HeldKey::Shift => Some(0x38),
         HeldKey::Alt => Some(0x3a),
         HeldKey::Control => Some(0x3b),
+        // Right-hand Option: kVK_RightOption. Doubao-style hotkeys listen
+        // for the right key specifically.
+        HeldKey::RightAlt => Some(0x3d),
         HeldKey::Key(usage) => hid_usage_to_macos(usage.code()),
     }?;
     Some((vk, held_modifier_flags(*modifiers)))
@@ -374,7 +388,7 @@ fn held_modifier_flags(modifiers: HeldModifiers) -> CGEventFlags {
     if modifiers.contains(HeldKey::Control) {
         flags |= CGEventFlags::CGEventFlagControl;
     }
-    if modifiers.contains(HeldKey::Alt) {
+    if modifiers.contains(HeldKey::Alt) || modifiers.contains(HeldKey::RightAlt) {
         flags |= CGEventFlags::CGEventFlagAlternate;
     }
     flags

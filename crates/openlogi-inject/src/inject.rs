@@ -44,6 +44,10 @@ enum HeldKey {
     Control,
     Shift,
     Alt,
+    /// Right-hand Option. A macOS-only distinction (0x3D vs the left 0x3A);
+    /// other platforms fold it into `Alt`.
+    #[cfg(target_os = "macos")]
+    RightAlt,
     Key(KeyboardUsage),
 }
 
@@ -81,6 +85,7 @@ impl HeldModifiers {
             HeldKey::Control => Some(1 << 1),
             HeldKey::Shift => Some(1 << 2),
             HeldKey::Alt => Some(1 << 3),
+            HeldKey::RightAlt => Some(1 << 4),
             HeldKey::Key(_) => None,
         }
     }
@@ -137,6 +142,7 @@ impl HeldOutput {
             HeldKey::Control,
             HeldKey::Shift,
             HeldKey::Alt,
+            HeldKey::RightAlt,
         ] {
             modifiers.set(key, self.owners.contains_key(&key));
         }
@@ -166,8 +172,21 @@ fn held_keys(combo: &KeyCombo) -> Vec<HeldKey> {
     if combo.has_shift() {
         keys.push(HeldKey::Shift);
     }
+    // On macOS the left and right Option keys are distinct physical keys,
+    // so an explicit RightOption chord must not also hold the left key.
+    #[cfg(target_os = "macos")]
+    if combo.has_option() && !combo.has_right_option() {
+        keys.push(HeldKey::Alt);
+    }
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     if combo.has_option() {
         keys.push(HeldKey::Alt);
+    }
+    // The right-hand Option is a macOS-only distinction; other platforms
+    // fold it into the single Alt key.
+    #[cfg(target_os = "macos")]
+    if combo.has_right_option() {
+        keys.push(HeldKey::RightAlt);
     }
     // A modifier-only chord holds just its modifier keys; there is no base
     // key to press.

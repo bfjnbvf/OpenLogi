@@ -10,7 +10,12 @@ const MOD_COMMAND: u8 = 1 << 0;
 const MOD_SHIFT: u8 = 1 << 1;
 const MOD_CONTROL: u8 = 1 << 2;
 const MOD_OPTION: u8 = 1 << 3;
-const ALL_MODIFIERS: u8 = MOD_COMMAND | MOD_SHIFT | MOD_CONTROL | MOD_OPTION;
+/// Right-hand Option/Alt. macOS exposes left and right Option as distinct
+/// physical keys (and some apps — e.g. Doubao's voice-input hotkey — listen
+/// for the right one only), so chords can target it explicitly.
+const MOD_OPTION_RIGHT: u8 = 1 << 4;
+const ALL_MODIFIERS: u8 =
+    MOD_COMMAND | MOD_SHIFT | MOD_CONTROL | MOD_OPTION | MOD_OPTION_RIGHT;
 
 /// USB HID keyboard usage supported by custom shortcuts.
 ///
@@ -195,7 +200,13 @@ impl KeyCombo {
     /// Whether the chord includes Option/Alt.
     #[must_use]
     pub const fn has_option(&self) -> bool {
-        self.modifiers & MOD_OPTION != 0
+        self.modifiers & (MOD_OPTION | MOD_OPTION_RIGHT) != 0
+    }
+
+    /// Whether the chord explicitly includes the right-hand Option/Alt key.
+    #[must_use]
+    pub const fn has_right_option(&self) -> bool {
+        self.modifiers & MOD_OPTION_RIGHT != 0
     }
 
     /// Canonical user-facing chord label.
@@ -208,8 +219,11 @@ impl KeyCombo {
         if self.has_control() {
             parts.push("Ctrl".to_string());
         }
-        if self.has_option() {
+        if self.modifiers & MOD_OPTION != 0 {
             parts.push("Alt".to_string());
+        }
+        if self.has_right_option() {
+            parts.push("RightOption".to_string());
         }
         if self.has_shift() {
             parts.push("Shift".to_string());
@@ -281,6 +295,7 @@ fn parse_modifier(token: &str) -> Option<u8> {
         "shift" => Some(MOD_SHIFT),
         "ctrl" | "control" => Some(MOD_CONTROL),
         "alt" | "option" => Some(MOD_OPTION),
+        "ralt" | "roption" | "rightoption" | "rightoptionkey" => Some(MOD_OPTION_RIGHT),
         _ => None,
     }
 }
@@ -366,9 +381,19 @@ mod tests {
             .parse::<KeyCombo>()
             .expect("modifier-only shortcut failed");
         assert!(combo.has_option());
+        assert!(!combo.has_right_option());
         assert_eq!(combo.key(), None);
         assert_eq!(combo.rendered_label(), "Alt");
         assert_eq!("Alt".parse::<KeyCombo>(), Ok(combo));
+
+        let right = "RightOption"
+            .parse::<KeyCombo>()
+            .expect("modifier-only shortcut failed");
+        assert!(right.has_option());
+        assert!(right.has_right_option());
+        assert_eq!(right.key(), None);
+        assert_eq!(right.rendered_label(), "RightOption");
+        assert_eq!("ROption".parse::<KeyCombo>(), Ok(right));
     }
 
     #[test]
