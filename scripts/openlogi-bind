@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""openlogi-bind — set a mouse button binding from the CLI.
+
+Usage:
+  openlogi-bind <Button> <Chord>
+
+Examples:
+  openlogi-bind DpiToggle RightOption      # mode button = right Option
+  openlogi-bind DpiToggle Cmd              # mode button = left Command
+  openlogi-bind MiddleClick "Cmd+Shift+P"  # chord with a key
+
+The button is bound as a HoldShortcut: tapping the button taps the chord,
+holding it holds the chord until release. Edits
+~/.config/openlogi/config.toml in place and restarts the agent so the
+change is live immediately.
+"""
+
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+CONFIG = Path.home() / ".config" / "openlogi" / "config.toml"
+AGENT_APP = "/Applications/OpenLogi.app/Contents/Library/LoginItems/OpenLogi Agent.app"
+
+VALID_MODIFIERS = {
+    "cmd", "command", "meta", "win",
+    "shift",
+    "ctrl", "control",
+    "alt", "option",
+    "ralt", "roption", "rightoption",
+}
+VALID_KEY = re.compile(
+    r"^([a-z0-9]|f([1-9]|1[0-9]|20)|space|enter|return|escape|esc|tab|backspace)$"
+)
+
+
+def fail(message: str) -> "None":
+    print(f"openlogi-bind: {message}", file=sys.stderr)
+    sys.exit(1)
+
+
+def validate_chord(chord: str) -> None:
+    tokens = [t.strip() for t in chord.split("+") if t.strip()]
+    if not tokens:
+        fail("empty chord")
+    modifiers = 0
+    keys = 0
+    for token in tokens:
+        lowered = token.lower()
+        if lowered in VALID_MODIFIERS:
+            modifiers += 1
+            continue
+        if VALID_KEY.match(lowered):
+            keys += 1
+            continue
+        fail(f"unknown chord token: {token!r}")
+    if keys > 1:
+        fail("chord must contain at most one key")
+    if keys == 0 and modifiers == 0:
+        fail("chord is empty")
+
+
+def main() -> None:
+    if len(sys.argv) != 3:
+        print(__doc__, file=sys.stderr)
+        sys.exit(1)
+    button, chord = sys.argv[1], sys.argv[2]
+    if not re.fullmatch(r"[A-Za-z]+", button):
+        fail(f"invalid button name: {button!r}")
+    validate_chord(chord)
+    if not CONFIG.exists():
+        fail(f"config not found: {CONFIG}")
+
+    text = CONFIG.read_text(encoding="utf-8")
+
+    device = re.search(r'^\[devices\."([^"]+)"\.', text, re.MULTILINE)
+    if not device:
+        fail("no device section found in config (open the GUI once to create it)")
+    serial = device.group(1)
+
+    # Strip every previous form of this button's binding: standalone section
+    # tables (with any trailing whitespace the GUI leaves in the header) and
+    # inline `Button = ...` entries inside the plain bindings table.
+    section_header = re.compile(
+        rf'^\[devices\."{re.escape(serial)}"\.bindings\.{button}\s*\]\s*\n'
+        rf"(?:^[^\[]*?\n)*?",
+        re.MULTILINE,
+    )
+    text = section_header.sub("", text)
+    inline_entry = re.compile(
+        rf'^{button}\s*=\s*.*\n', re.MULTILINE
+    )
+    # Only strip inline entries that sit directly under the bindings table —
+    # matched by appearing after its header and before the next header.
+    bindings_scope = re.compile(
+        rf'(\[devices\."{re.escape(serial)}"\.bindings\]\s*\n(?:^\[.*\n)*?)',
+        re.MULTILINE,
+    )
+    text = bindings_scope.sub(
+        lambda m: inline_entry.sub("", m.group(1)) if button in m.group(1) else m.group(1),
+        text,
+    )
+
+    text += (
+        f'\n[devices."{serial}".bindings.{button}]\n'
+        f'HoldShortcut = "{chord}"\n'
+    )
+    CONFIG.write_text(text, encoding="utf-8")
+    print(f"bound {button} -> HoldShortcut {chord!r}")
+
+    subprocess.run(["pkill", "-x", "openlogi-agent"], check=False)
+    subprocess.run(["sleep", "1"], check=False)
+    subprocess.run(["open", "-na", AGENT_APP], check=False)
+    print("agent restarted — change is live")
+
+
+if __name__ == "__main__":
+    main()
